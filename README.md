@@ -1,107 +1,102 @@
-# DocTalker
+# Hybrid-RAG
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+A local-first hybrid Retrieval-Augmented Generation pipeline that combines vector search with web fallback. Runs entirely on your machine using Ollama and Weaviate — no API keys or cloud services required.
 
-DocTalker is a Retrieval-Augmented Generation (RAG) system designed to enable natural language querying of PDF documents. It ingests PDFs, processes them into chunks, generates embeddings, and uses FAISS for efficient similarity search to provide context-aware answers.
+## How It Works
 
-## Features
+Hybrid-RAG ingests documents into a Weaviate vector store, then uses an LLM-based query router to decide how to answer each question:
 
-- **PDF Ingestion**: Load and extract text from PDF files.
-- **Text Chunking**: Split documents into manageable chunks for better retrieval.
-- **Embedding Generation**: Convert text chunks into vector embeddings using advanced models.
-- **Efficient Retrieval**: Use FAISS indexing for fast similarity search.
-- **Question Answering**: Generate answers based on retrieved context.
+- **LOCAL** — retrieves relevant chunks from the vector store via similarity search
+- **WEB** — falls back to DuckDuckGo search + Playwright scraping when the query falls outside ingested documents
 
-## Project Structure
+Retrieved context is fed to a local LLM (llama3 via Ollama) to synthesize a final answer.
+
+## Architecture
 
 ```
-DocTalker/
-├── data/
-│   ├── raw/            # Original PDFs (never modified)
-│   ├── processed/      # Cleaned text/chunks (optional cache)
-├── embeddings/
-│   └── faiss_index/    # Persisted FAISS index files
-├── ingestion/
-│   ├── pdf_loader.py   # PDF → text extraction
-│   ├── chunker.py      # Text → chunks
-│   └── embedder.py     # Chunks → vectors
-├── retrieval/
-│   ├── retriever.py    # Query → similar chunks
-│   └── qa.py           # Context → answer generation
-├── config/
-│   └── settings.py     # Paths, model names, constants
-├── main.py             # Orchestration entry point
-├── requirements.txt    # Python dependencies
-├── .gitignore          # Git ignore rules
-└── README.md           # This file
+User Query
+    │
+    ▼
+┌──────────────┐
+│ Query Router  │  LLM classifies: LOCAL or WEB
+│  (llama3)     │
+└──────┬───────┘
+       │
+  ┌────┴────┐
+  ▼         ▼
+LOCAL      WEB
+  │         │
+  ▼         ▼
+Weaviate   DuckDuckGo search
+similarity  + Playwright scrape
+search      + LLM synthesis
+  │         │
+  └────┬────┘
+       ▼
+  LLM Answer
+   (llama3)
 ```
 
-## Installation
+## Tech Stack
 
-1. **Clone the repository**:
+| Component | Technology |
+|-----------|------------|
+| LLM | Ollama — llama3 (local) |
+| Embeddings | nomic-embed-text via Ollama |
+| Vector Store | Weaviate v1.27 (Docker) |
+| Framework | LangChain (langchain_ollama, langchain_weaviate, langchain_core, langchain_community) |
+| Chunking | RecursiveCharacterTextSplitter (1000 chars, 100 overlap) |
+| Web Search | DuckDuckGo + Playwright headless browser |
+| Interface | CLI chat loop |
 
+## Supported Document Formats
+
+- **PDF** — via PyPDFLoader
+- **XML** — via BeautifulSoup
+- **Web pages** — via Playwright headless scraping
+
+Documents are split into chunks with source metadata preserved for filtered retrieval.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) (for Weaviate)
+- [Ollama](https://ollama.ai/) with models pulled:
+  ```bash
+  ollama pull llama3
+  ollama pull nomic-embed-text
+  ```
+- Python 3.10+
+
+## Getting Started
+
+1. **Start Weaviate:**
    ```bash
-   git clone https://github.com/Jinish2170/DocTalker.git
-   cd DocTalker
+   docker-compose up -d
    ```
 
-2. **Create a virtual environment** (recommended):
-
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**:
+2. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-## Usage
+3. **Ingest your documents** into the vector store (place PDFs, XML files, or URLs in the ingestion pipeline).
 
-1. **Prepare your PDFs**: Place your PDF files in the `data/raw/` directory.
-
-2. **Run the ingestion pipeline**:
-
-   ```python
-   from main import ingest_pdfs
-   ingest_pdfs()
+4. **Run the chat interface:**
+   ```bash
+   python main.py
    ```
 
-3. **Query the system**:
-   ```python
-   from main import query
-   answer = query("What is the main topic of the document?")
-   print(answer)
-   ```
+## Project Scope
 
-For a full example, see `main.py`.
+This is a ~600 LOC pipeline across 12 Python files. It demonstrates a functional hybrid RAG pattern — local vector retrieval with intelligent web fallback — suitable as a foundation for document Q&A projects. The ingestion pipeline is generic and works with any PDF, XML, or web content.
 
-## Configuration
+## Limitations
 
-Edit `config/settings.py` to customize:
-
-- Model names (e.g., embedding models)
-- Paths to data directories
-- FAISS index parameters
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository.
-2. Create a feature branch: `git checkout -b feature-name`.
-3. Commit your changes: `git commit -m 'Add some feature'`.
-4. Push to the branch: `git push origin feature-name`.
-5. Open a pull request.
+- CLI-only interface (no web UI)
+- No automated test suite
+- Weaviate runs via Docker Compose; no managed/cloud deployment config
+- Single-user, single-session design
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Built with [FAISS](https://github.com/facebookresearch/faiss) for vector search.
-- Uses [PyPDF2](https://pypi.org/project/PyPDF2/) for PDF processing.
-- Inspired by modern RAG architectures.
+See [LICENSE](LICENSE) for details.
